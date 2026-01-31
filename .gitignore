@@ -1,0 +1,10 @@
+node_modules/
+logs/
+*.csv
+*.html
+.DS_Store
+*.jsonl
+dist/
+.env
+.gemini/
+brain/
