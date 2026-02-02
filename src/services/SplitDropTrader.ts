@@ -54,10 +54,15 @@ export class SplitDropTrader {
         const preResolutionTime = ms - 1000;
         const delay = preResolutionTime - now;
 
-        if (delay > 0 && !this.resolved) {
+        if (this.resolved) {
+            console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Already resolved, skipping pre-resolution scheduling`);
+            return;
+        }
+
+        if (delay > 0) {
             console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Scheduling pre-resolution at ${formatTimestamp(new Date(preResolutionTime))} (in ${(delay / 1000).toFixed(1)}s)`);
             this.preResolutionTimer = setTimeout(() => this.handlePreResolution(), delay);
-        } else if (delay <= 0 && !this.resolved) {
+        } else {
             console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Pre-resolution time already passed, triggering immediately`);
             this.handlePreResolution();
         }
@@ -99,6 +104,9 @@ export class SplitDropTrader {
         console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Total Balance: $${this.balance.toFixed(4)}`);
         console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Initial Investment: $${this.initialInvestment.toFixed(4)}`);
         console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Final PnL: $${finalPnL.toFixed(4)}`);
+
+        // Write balance summary file
+        this.writeBalanceSummary(finalPnL);
     }
 
     private initializeCsv() {
@@ -254,5 +262,23 @@ export class SplitDropTrader {
             clearTimeout(this.preResolutionTimer);
             this.preResolutionTimer = null;
         }
+    }
+
+    private writeBalanceSummary(finalPnL: number) {
+        const balanceFilePath = this.logFilePath.replace('_results_', '_balance_').replace('.csv', '.json');
+        const summary = {
+            marketId: this.marketId,
+            marketRange: this.marketRange,
+            timestamp: new Date().toISOString(),
+            initialInvestment: this.initialInvestment,
+            totalBalance: this.balance,
+            finalPnL: finalPnL,
+            positionsSold: {
+                yes: this.positionSize - this.positions.yes === this.positionSize ? this.positionSize : 0,
+                no: this.positionSize - this.positions.no === this.positionSize ? this.positionSize : 0
+            }
+        };
+        fs.writeFileSync(balanceFilePath, JSON.stringify(summary, null, 2));
+        console.log(`[${formatTimestamp()}] [SplitDrop-${this.marketRange}] Balance summary written to: ${path.basename(balanceFilePath)}`);
     }
 }
