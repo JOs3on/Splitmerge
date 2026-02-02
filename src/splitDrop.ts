@@ -45,11 +45,12 @@ async function main() {
                 if (!line) continue;
                 const update = JSON.parse(line);
                 const prob = parseFloat(update.probability);
+                const marketTs = update.market_timestamp; // This is the expiration timestamp in seconds
 
                 if (!isNaN(prob)) {
-                    // Propagate to all active traders
+                    // Propagate to all active traders with market timestamp for filtering
                     for (const trader of traders.values()) {
-                        trader.handleProbabilityUpdate(prob);
+                        trader.handleProbabilityUpdate(prob, marketTs);
                     }
                 }
             }
@@ -79,13 +80,12 @@ async function main() {
                     lastSeen.set(market.marketId, Date.now());
                     if (!traders.has(market.marketId)) {
                         console.log(`[${formatTimestamp()}] [Main] Initializing SplitDropTrader for market: ${market.marketId}`);
-                        // sellThreshold and positionSize are now hardcoded as per the instruction's implied change
                         const trader = new SplitDropTrader(market.marketId, 0.05, 10.0);
 
                         const expirationSec = parseInt(market.slug?.split('-').pop() || '0');
                         if (expirationSec) {
-                            // Expiration is start timestamp + 15 minutes
-                            trader.setExpiration(expirationSec * 1000 + MARKET_DURATION_MS);
+                            // expirationSec IS the expiration timestamp (NOT start), do NOT add 15 minutes
+                            trader.setExpiration(expirationSec * 1000);
                         }
 
                         traders.set(market.marketId, trader);

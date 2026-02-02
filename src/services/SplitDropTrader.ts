@@ -20,6 +20,8 @@ export class SplitDropTrader {
     private marketRange: string = '??:??-??:??';
     private isSelling: boolean = false;
     private lastPriceUpdate: number = 0;
+    private marketExpirationSec: number = 0;
+    private clobLogPath: string;
 
     constructor(marketId: string, sellThreshold: number = 0.05, positionSize: number = 10) {
         this.marketId = marketId;
@@ -43,10 +45,13 @@ export class SplitDropTrader {
         this.balance = loaded.balance;
         this.resolved = loaded.resolved;
         this.initializeCsv();
+        this.clobLogPath = path.join(logDir, `split_drop_clob_${marketId}_${suffix}.csv`);
+        this.initializeClobLog();
     }
 
     public setExpiration(ms: number) {
         this.expirationMs = ms;
+        this.marketExpirationSec = Math.floor(ms / 1000);
         this.marketRange = getTimeRange(ms);
 
         // Schedule pre-resolution 1 second before expiration
@@ -116,6 +121,18 @@ export class SplitDropTrader {
         }
     }
 
+    private initializeClobLog() {
+        if (!fs.existsSync(this.clobLogPath)) {
+            const headers = 'Timestamp,MarketId,MarketRange,Side,OldPrice,NewPrice\n';
+            fs.writeFileSync(this.clobLogPath, headers);
+        }
+    }
+
+    private logClobUpdate(side: Side, newPrice: number, oldPrice: number) {
+        const entry = `${new Date().toISOString()},${this.marketId},${this.marketRange},${side},${oldPrice.toFixed(4)},${newPrice.toFixed(4)}\n`;
+        fs.appendFileSync(this.clobLogPath, entry);
+    }
+
     private loadState(): { positions: { yes: number; no: number }; balance: number; resolved: boolean } {
         if (fs.existsSync(this.stateFilePath)) {
             try {
@@ -151,6 +168,12 @@ export class SplitDropTrader {
 
         const side = update.side;
         const currentPrice = update.price;
+        const prevPrice = side === 'YES' ? this.lastPrices.yes : this.lastPrices.no;
+
+        // Log significant price changes (>1 cent)
+        if (prevPrice !== null && Math.abs(currentPrice - prevPrice) >= 0.01) {
+            this.logClobUpdate(side, currentPrice, prevPrice);
+        }
 
         // Update local state with latest prices
         if (side === 'YES') this.lastPrices.yes = currentPrice;
@@ -165,10 +188,15 @@ export class SplitDropTrader {
 
     /**
      * Called by the log watcher in splitDrop.ts
-     * prob is 0-100
+     * prob is 0-100, marketTimestamp is the expiration timestamp in seconds
      */
-    public handleProbabilityUpdate(prob: number) {
+    public handleProbabilityUpdate(prob: number, marketTimestamp?: number) {
         if (this.resolved || this.isSelling) return;
+
+        // Filter: only respond to updates for THIS market
+        if (marketTimestamp && marketTimestamp !== this.marketExpirationSec) {
+            return; // Ignore updates for other markets
+        }
 
         const probDecimal = prob / 100;
 
